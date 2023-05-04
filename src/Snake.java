@@ -3,6 +3,10 @@ import java.awt.geom.Ellipse2D;
 
 public class Snake extends Ellipse2D.Double {
 
+    public Snake(int x, int y) {
+        super(x, y, 50, 50);
+    }
+
     public int getDirectionX() {
         return directionX;
     }

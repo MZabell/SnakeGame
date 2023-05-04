@@ -10,10 +10,18 @@ public class View extends JPanel {
 
     private LinkedList<Snake> list;
 
+    public void setFood(Food food) {
+        this.food = food;
+    }
+
+    private Food food;
+
     public View() {
         setPreferredSize(new Dimension(800, 800));
         setLayout(null);
         setVisible(true);
+        setFocusable(true);
+        requestFocusInWindow();
     }
 
     @Override
@@ -30,5 +38,8 @@ public class View extends JPanel {
             g2d.setColor(s.getColor());
             g2d.fill(s);
         }
+
+        g2d.setColor(food.getColor());
+        g2d.fill(food);
     }
 }
