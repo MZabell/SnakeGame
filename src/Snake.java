@@ -33,7 +33,6 @@ public class Snake extends Ellipse2D.Double {
 
     private int directionX;
     private int directionY;
-
     private Color color = Color.BLUE;
 
 }

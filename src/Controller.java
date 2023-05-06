@@ -1,42 +1,49 @@
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
-import java.lang.reflect.Array;
-import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.ListIterator;
 import java.util.Random;
 
 public class Controller {
 
-    private final int REFRESH_RATE = 144;
-    private Frame frame;
-    private View view;
+    private static final int REFRESH_RATE = 144;
+    private final Frame frame;
+    private final View view;
+    private final Menu menu;
     private Snake snake;
     private Food food;
     private Direction direction;
-    private boolean isMoveBlocking;
-    private int queuedAction;
-    boolean isFoodAvailable;
+    private boolean isRunning, isMoveBlocking, isFoodAvailable;
+    private int queuedAction, score, PBScore;
+    private LinkedList<Snake> list;
+    private Thread gameThread;
 
-    private LinkedList<Snake> list = new LinkedList<>();
-    public Controller(Frame frame, View view) {
+    public Controller(Frame frame, View view, Menu menu) {
         this.frame = frame;
         this.view = view;
+        this.menu = menu;
 
-        this.frame.setContentPane(this.view);
+        this.frame.getContentPane().add(this.menu);
         this.frame.pack();
 
-        view.addKeyListener(new KeyManager());
+        PBScore = 0;
 
-        isMoveBlocking = false;
-        isFoodAvailable = false;
-
-        createInitialBoard();
-        gameLoop();
+        this.view.addKeyListener(new KeyManager());
+        this.menu.getPlayButton().addActionListener(e -> {
+            gameThread = new Thread(() -> {
+                frame.getContentPane().removeAll();
+                frame.getContentPane().add(view);
+                view.requestFocusInWindow();
+                isRunning = true;
+                createInitialBoard();
+                gameLoop();
+            });
+            gameThread.start();
+        });
     }
 
     private void gameLoop() {
-        while (true) {
+        while (isRunning) {
             long startTime = System.currentTimeMillis();
 
             if (!isFoodAvailable) {
@@ -45,6 +52,7 @@ public class Controller {
 
             moveSnake();
             checkCollisions();
+            updateScore();
             frame.repaint();
 
             long timeElapsed = System.currentTimeMillis() - startTime;
@@ -61,6 +69,7 @@ public class Controller {
     private void createInitialBoard() {
         int posX = 100, posY = 100;
         snake = new Snake(posX, posY);
+        list = new LinkedList<>();
         list.add(snake);
 
         for (int i = 0; i < 2; i++) {
@@ -68,59 +77,55 @@ public class Controller {
             list.add(new SnakeTail(posX, posY));
         }
 
+        isMoveBlocking = false;
+        isFoodAvailable = false;
+        score = 0;
         direction = Direction.RIGHT;
 
         view.setList(list);
     }
 
     private void moveSnake() {
-            switch (direction) {
-                case LEFT -> {
-                    snake.setDirectionX(-1);
-                    snake.setDirectionY(0);
-                }
-                case RIGHT -> {
-                    snake.setDirectionX(1);
-                    snake.setDirectionY(0);
-                }
-                case UP -> {
-                    snake.setDirectionX(0);
-                    snake.setDirectionY(-1);
-                }
-                case DOWN -> {
-                    snake.setDirectionX(0);
-                    snake.setDirectionY(1);
+        switch (direction) {
+            case LEFT -> {
+                snake.setDirectionX(-1);
+                snake.setDirectionY(0);
+            }
+            case RIGHT -> {
+                snake.setDirectionX(1);
+                snake.setDirectionY(0);
+            }
+            case UP -> {
+                snake.setDirectionX(0);
+                snake.setDirectionY(-1);
+            }
+            case DOWN -> {
+                snake.setDirectionX(0);
+                snake.setDirectionY(1);
+            }
+        }
+        snake.setFrame(snake.getX() + snake.getDirectionX(), snake.getY() + snake.getDirectionY(), snake.getWidth(), snake.getHeight());
+
+
+        ListIterator<Snake> iterator = list.listIterator(1);
+        while (iterator.hasNext()) {
+            Snake prev = iterator.previous();
+            iterator.next();
+            Snake next = iterator.next();
+            if (next.getX() == prev.getX() || next.getY() == prev.getY()) {
+                next.setDirectionX(prev.getDirectionX());
+                next.setDirectionY(prev.getDirectionY());
+                if (list.indexOf(next) == 1) {
+                    isMoveBlocking = false;
+                    performAction(queuedAction);
+                    queuedAction = 0;
                 }
             }
-            snake.setFrame(snake.getX() + snake.getDirectionX(), snake.getY() + snake.getDirectionY(), snake.getWidth(), snake.getHeight());
-
-
-            ListIterator<Snake> iterator = list.listIterator(1);
-            while (iterator.hasNext()) {
-                Snake prev = iterator.previous();
-                iterator.next();
-                Snake next = iterator.next();
-                if (next.getX() == prev.getX() || next.getY() == prev.getY()) {
-                    next.setDirectionX(prev.getDirectionX());
-                    next.setDirectionY(prev.getDirectionY());
-                    if (list.indexOf(next) == 1) {
-                        isMoveBlocking = false;
-                        performAction(queuedAction);
-                        queuedAction = 0;
-                    }
-                }
-                next.setFrame(next.getX() + next.getDirectionX(), next.getY() + next.getDirectionY(), next.getWidth(), next.getHeight());
-            }
+            next.setFrame(next.getX() + next.getDirectionX(), next.getY() + next.getDirectionY(), next.getWidth(), next.getHeight());
+        }
     }
 
-    private enum Direction {
-        LEFT,
-        RIGHT,
-        UP,
-        DOWN;
-    }
-
-    private void performAction(int keyCode) {
+    private synchronized void performAction(int keyCode) {
         if (!isMoveBlocking) {
             switch (keyCode) {
                 case KeyEvent.VK_LEFT -> {
@@ -145,12 +150,20 @@ public class Controller {
             isMoveBlocking = true;
         } else
             queuedAction = keyCode;
+        if (!isRunning) {
+            restart();
+        }
     }
 
     private void spawnFood() {
         Random random = new Random();
-        food = new Food();
-        food.setFrame(random.nextInt(view.getWidth() - 40), random.nextInt(view.getHeight() - 40), 40, 40);
+        food = new Food(random.nextInt(view.getWidth() - 40), random.nextInt(view.getHeight() - 40));
+
+        for (Snake s : list) {
+            if (food.intersects(s.getBounds2D()))
+                spawnFood();
+        }
+
         view.setFood(food);
         isFoodAvailable = true;
     }
@@ -166,11 +179,58 @@ public class Controller {
                 case -1 -> list.addLast(new SnakeTail((int) list.getLast().getX(), (int) list.getLast().getY() + 40));
             }
             isFoodAvailable = false;
+            score++;
         }
 
         if (snake.getX() < 0 || snake.getX() + snake.getWidth() > view.getWidth() || snake.getY() < 0 || snake.getY() + snake.getHeight() > view.getHeight()) {
-            System.out.println("Game Over!");
+            gameOver();
         }
+
+        ListIterator<Snake> iterator = list.listIterator(3);
+        while (iterator.hasNext()) {
+            if (snake.intersects(iterator.next().getBounds2D())) {
+                gameOver();
+            }
+        }
+    }
+
+    private void updateScore() {
+        if (score > PBScore)
+            PBScore = score;
+
+        view.getScoreLabel().setText("Score: " + score);
+        view.getPBLabel().setText("Personal Best: " + PBScore);
+    }
+
+    private void gameOver() {
+        isRunning = false;
+        view.getGameOverLabel().setVisible(true);
+        view.getRestartLabel().setVisible(true);
+    }
+
+    private void restart() {
+        view.getGameOverLabel().setVisible(false);
+        view.getRestartLabel().setVisible(false);
+
+        try {
+            gameThread.join();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
+        gameThread = new Thread(() -> {
+            isRunning = true;
+            createInitialBoard();
+            gameLoop();
+        });
+        gameThread.start();
+    }
+
+    private enum Direction {
+        LEFT,
+        RIGHT,
+        UP,
+        DOWN
     }
 
     private class KeyManager implements KeyListener {
@@ -182,7 +242,7 @@ public class Controller {
 
         @Override
         public void keyPressed(KeyEvent e) {
-           performAction(e.getKeyCode());
+            performAction(e.getKeyCode());
         }
 
         @Override
